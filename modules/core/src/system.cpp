@@ -73,7 +73,9 @@ Mutex& getInitializationMutex()
     if (__initialization_mutex == NULL)
     {
         (void)_initSystem();
-        __initialization_mutex = new Mutex();
+        //__initialization_mutex = new Mutex();
+        static Mutex instance;
+        __initialization_mutex = &instance;
     }
     return *__initialization_mutex;
 }
@@ -1714,7 +1716,10 @@ private:
 // Create global TLS storage object
 static TlsStorage &getTlsStorage()
 {
-    CV_SINGLETON_LAZY_INIT_REF(TlsStorage, new TlsStorage())
+    // CV_SINGLETON_LAZY_INIT_REF(TlsStorage, new TlsStorage())
+
+    static TlsStorage  instance;
+    return instance;
 }
 
 #ifndef _WIN32  // pthread key destructor
@@ -1788,7 +1793,10 @@ void* TLSDataContainer::getData() const
 
 static TLSData<CoreTLSData>& getCoreTlsDataTLS()
 {
-    CV_SINGLETON_LAZY_INIT_REF(TLSData<CoreTLSData>, new TLSData<CoreTLSData>())
+    // CV_SINGLETON_LAZY_INIT_REF(TLSData<CoreTLSData>, new TLSData<CoreTLSData>())
+
+    static TLSData<CoreTLSData>  instance;
+    return instance;
 }
 
 CoreTLSData& getCoreTlsData()
@@ -1851,7 +1859,10 @@ public:
 
 static TLSData<ThreadID>& getThreadIDTLS()
 {
-    CV_SINGLETON_LAZY_INIT_REF(TLSData<ThreadID>, new TLSData<ThreadID>());
+    // CV_SINGLETON_LAZY_INIT_REF(TLSData<ThreadID>, new TLSData<ThreadID>());
+
+    static TLSData<ThreadID>  instance;
+    return instance;
 }
 
 } // namespace
@@ -2383,7 +2394,10 @@ public:
 
 static IPPInitSingleton& getIPPSingleton()
 {
-    CV_SINGLETON_LAZY_INIT_REF(IPPInitSingleton, new IPPInitSingleton())
+    // CV_SINGLETON_LAZY_INIT_REF(IPPInitSingleton, new IPPInitSingleton())
+
+    static IPPInitSingleton instance;
+    return instance;
 }
 #endif
 

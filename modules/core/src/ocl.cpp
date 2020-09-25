@@ -501,7 +501,9 @@ struct OpenCLBinaryCacheConfigurator
 
     static OpenCLBinaryCacheConfigurator& getSingletonInstance()
     {
-        CV_SINGLETON_LAZY_INIT_REF(OpenCLBinaryCacheConfigurator, new OpenCLBinaryCacheConfigurator());
+        // CV_SINGLETON_LAZY_INIT_REF(OpenCLBinaryCacheConfigurator, new OpenCLBinaryCacheConfigurator());
+        static OpenCLBinaryCacheConfigurator instance;
+        return instance;
     }
 };
 class BinaryProgramFile
@@ -1244,7 +1246,9 @@ class AmdBlasHelper
 public:
     static AmdBlasHelper & getInstance()
     {
-        CV_SINGLETON_LAZY_INIT_REF(AmdBlasHelper, new AmdBlasHelper())
+        // CV_SINGLETON_LAZY_INIT_REF(AmdBlasHelper, new AmdBlasHelper())
+        static AmdBlasHelper instance;
+        return instance;
     }
 
     bool isAvailable() const
@@ -1318,7 +1322,9 @@ class AmdFftHelper
 public:
     static AmdFftHelper & getInstance()
     {
-        CV_SINGLETON_LAZY_INIT_REF(AmdFftHelper, new AmdFftHelper())
+        // CV_SINGLETON_LAZY_INIT_REF(AmdFftHelper, new AmdFftHelper())
+        static AmdFftHelper instance;
+        return instance;
     }
 
     bool isAvailable() const

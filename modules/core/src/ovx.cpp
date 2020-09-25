@@ -28,7 +28,9 @@ struct OpenVXTLSData
 
 static TLSData<OpenVXTLSData>& getOpenVXTLSData()
 {
-    CV_SINGLETON_LAZY_INIT_REF(TLSData<OpenVXTLSData>, new TLSData<OpenVXTLSData>())
+    // CV_SINGLETON_LAZY_INIT_REF(TLSData<OpenVXTLSData>, new TLSData<OpenVXTLSData>())
+    static TLSData<OpenVXTLSData> instance;
+    return instance;
 }
 
 struct OpenVXCleanupFunctor

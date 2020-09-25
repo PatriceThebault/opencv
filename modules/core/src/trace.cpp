@@ -928,7 +928,9 @@ static TraceManager* getTraceManagerCallOnce()
 }
 TraceManager& getTraceManager()
 {
-    CV_SINGLETON_LAZY_INIT_REF(TraceManager, getTraceManagerCallOnce())
+    // CV_SINGLETON_LAZY_INIT_REF(TraceManager, getTraceManagerCallOnce())
+    static TraceManager instance;
+    return instance;
 }
 
 void parallelForSetRootRegion(const Region& rootRegion, const TraceManagerThreadLocal& root_ctx)

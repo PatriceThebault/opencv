@@ -199,7 +199,9 @@ void Mat::setDefaultAllocator(MatAllocator* allocator)
 }
 MatAllocator* Mat::getStdAllocator()
 {
-    CV_SINGLETON_LAZY_INIT(MatAllocator, new StdMatAllocator())
+    //CV_SINGLETON_LAZY_INIT(MatAllocator, new StdMatAllocator())
+    static StdMatAllocator instance;
+    return &instance;
 }
 
 //==================================================================================================

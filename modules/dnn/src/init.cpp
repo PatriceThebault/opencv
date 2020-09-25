@@ -51,8 +51,10 @@ CV__DNN_INLINE_NS_BEGIN
 static Mutex* __initialization_mutex = NULL;
 Mutex& getInitializationMutex()
 {
-    if (__initialization_mutex == NULL)
-        __initialization_mutex = new Mutex();
+    //if (__initialization_mutex == NULL)
+    //    __initialization_mutex = new Mutex();
+    static Mutex instance;
+    __initialization_mutex = &instance;
     return *__initialization_mutex;
 }
 // force initialization (single-threaded environment)
