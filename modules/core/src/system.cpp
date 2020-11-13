@@ -1997,7 +1997,9 @@ utils::Paths utils::getConfigurationParameterPaths(const char* name, const utils
 #ifdef CV_COLLECT_IMPL_DATA
 ImplCollector& getImplData()
 {
-    CV_SINGLETON_LAZY_INIT_REF(ImplCollector, new ImplCollector())
+    //CV_SINGLETON_LAZY_INIT_REF(ImplCollector, new ImplCollector())
+    static ImplCollector instance;
+    return instance;
 }
 
 void setImpl(int flags)
