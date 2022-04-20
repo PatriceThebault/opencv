@@ -1524,8 +1524,10 @@ public:
         // TlsStorage object should not be released
         // There is no reliable way to avoid problems caused by static initialization order fiasco
         // Don't use logging here
-        fprintf(stderr, "OpenCV FATAL: TlsStorage::~TlsStorage() call is not expected\n");
-        fflush(stderr);
+
+        // comment this out to avoid a print in the Linux terminal when closing the app
+        // fprintf(stderr, "OpenCV FATAL: TlsStorage::~TlsStorage() call is not expected\n");
+        // fflush(stderr);
     }
 
     void releaseThread(void* tlsValue = NULL)
