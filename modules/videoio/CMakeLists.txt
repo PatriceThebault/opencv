@@ -286,6 +286,17 @@ endif()
 
 ocv_target_link_libraries(${the_module} LINK_PRIVATE ${tgts})
 
+# pth 
+if(NOT WIN32)
+  # Locate libudev
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(UDEV REQUIRED libudev)
+endif()
+
+# Link against libudev
+ocv_target_link_libraries(${the_module} ${UDEV_LIBRARIES})
+ocv_target_include_directories(${the_module} PUBLIC ${UDEV_INCLUDE_DIRS})
+
 # copy FFmpeg dll to the output folder
 if(WIN32 AND HAVE_FFMPEG_WRAPPER)
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)

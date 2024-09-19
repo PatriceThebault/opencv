@@ -37,7 +37,7 @@ public:
     virtual ~VideoCapture_obsensor();
 
     virtual double getProperty(int propIdx) const CV_OVERRIDE;
-    virtual bool setProperty(int propIdx, double propVal) CV_OVERRIDE;
+    virtual bool setProperty(int propIdx, int propVal) CV_OVERRIDE;
     virtual bool grabFrame() CV_OVERRIDE;
     virtual bool retrieveFrame(int outputType, OutputArray frame) CV_OVERRIDE;
     virtual int getCaptureDomain() CV_OVERRIDE {

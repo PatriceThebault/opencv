@@ -74,7 +74,8 @@
 #include <gst/pbutils/encoding-profile.h>
 //#include <gst/base/gsttypefindhelper.h>
 
-#define CV_WARN(...) CV_LOG_WARNING(NULL, "OpenCV | GStreamer warning: " << __VA_ARGS__)
+//#define CV_WARN(...) CV_LOG_WARNING(NULL, "OpenCV | GStreamer warning: " << __VA_ARGS__)
+#define CV_WARN(...)
 
 #define COLOR_ELEM "videoconvert"
 #define COLOR_ELEM_NAME COLOR_ELEM
@@ -384,7 +385,7 @@ public:
     bool retrieveVideoFrame(int /*unused*/, OutputArray dst);
     bool retrieveAudioFrame(int /*unused*/, OutputArray dst);
     virtual double getProperty(int propId) const CV_OVERRIDE;
-    virtual bool setProperty(int propId, double value) CV_OVERRIDE;
+    virtual bool setProperty(int propId, int value) CV_OVERRIDE;
     virtual bool isOpened() const CV_OVERRIDE { return (bool)pipeline; }
     virtual int getCaptureDomain() CV_OVERRIDE { return cv::CAP_GSTREAMER; }
     bool open(int id, const cv::VideoCaptureParameters& params);
@@ -1926,7 +1927,7 @@ double GStreamerCapture::getProperty(int propId) const
  * Sets the desired property id with val. If the pipeline is running,
  * it is briefly stopped and started again after the property was set
  */
-bool GStreamerCapture::setProperty(int propId, double value)
+bool GStreamerCapture::setProperty(int propId, int value)
 {
     const GstSeekFlags flags = (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE);
 

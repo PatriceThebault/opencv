@@ -422,7 +422,7 @@ public:
         return -1;
     }
 
-    bool setProperty(int property_id, double value) CV_OVERRIDE
+    bool setProperty(int property_id, int value) CV_OVERRIDE
     {
         switch (property_id) {
             case CV_CAP_PROP_FRAME_WIDTH:

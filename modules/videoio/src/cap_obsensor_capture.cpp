@@ -176,7 +176,7 @@ double VideoCapture_obsensor::getProperty(int propIdx) const {
     return rst;
 }
 
-bool VideoCapture_obsensor::setProperty(int propIdx, double /*propVal*/)
+bool VideoCapture_obsensor::setProperty(int propIdx, int /*propVal*/)
 {
     CV_LOG_WARNING(NULL, "Unsupported or read only property, id=" << propIdx);
     return false;

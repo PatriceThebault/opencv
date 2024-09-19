@@ -220,8 +220,10 @@ make & enjoy!
 
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <libudev.h>
 #include <limits>
 
 #include <poll.h>
@@ -285,7 +287,7 @@ typedef uint32_t __u32;
 // default and maximum number of V4L buffers, not including last, 'special' buffer
 #define MAX_V4L_BUFFERS 10
 #define DEFAULT_V4L_BUFFERS 4
-
+#define MAX_DEVICE_DRIVER_NAME 80
 // types of memory in 'special' buffer
 enum {
     MEMORY_ORIG = 0, // Image data in original format.
@@ -293,7 +295,7 @@ enum {
 };
 
 // if enabled, then bad JPEG warnings become errors and cause NULL returned instead of image
-#define V4L_ABORT_BADJPEG
+// #define V4L_ABORT_BADJPEG
 
 namespace cv {
 
@@ -349,6 +351,10 @@ struct Buffer
     }
 };
 
+static int numCameras = 0;
+static int indexList = 0;
+bool bCurrMode1, bCurrMode2;
+
 struct CvCaptureCAM_V4L CV_FINAL : public CvCapture
 {
     int getCaptureDomain() /*const*/ CV_OVERRIDE { return cv::CAP_V4L; }
@@ -401,8 +407,15 @@ struct CvCaptureCAM_V4L CV_FINAL : public CvCapture
     void closeDevice();
 
     virtual double getProperty(int) const CV_OVERRIDE;
-    virtual bool setProperty(int, double) CV_OVERRIDE;
+    virtual bool getProperty(int propId, int &min, int &max, int &steppingDelta, int &supportedMode, int &currentValue, int &currentMode, int &defaultValue) CV_OVERRIDE;
+    virtual bool setProperty(int, int) CV_OVERRIDE;
+    virtual bool setProperty(int propId, int value, int mode);
     virtual bool grabFrame() CV_OVERRIDE;
+    virtual bool getDevices(int &) CV_OVERRIDE;
+    virtual bool getDeviceInfo(int index, cv::String &deviceName, cv::String& vid, cv::String &pid,cv::String &devicePath) CV_OVERRIDE;
+    virtual bool getFormats(int &) CV_OVERRIDE;
+    virtual bool getFormatType(int formats, cv::String &formatType, int &width, int &height, int &fps) CV_OVERRIDE;
+    virtual bool setFormatType(int) CV_OVERRIDE;
     virtual IplImage* retrieveFrame(int) CV_OVERRIDE;
 
     CvCaptureCAM_V4L();
@@ -612,6 +625,7 @@ bool CvCaptureCAM_V4L::autosetup_capture_mode_v4l2()
             V4L2_PIX_FMT_Y12,
             V4L2_PIX_FMT_Y10,
             V4L2_PIX_FMT_GREY,
+            V4L2_PIX_FMT_H264      //Included by e-con
     };
 
     for (size_t i = 0; i < sizeof(try_order) / sizeof(__u32); i++) {
@@ -723,6 +737,10 @@ void CvCaptureCAM_V4L::v4l2_create_frame()
         case V4L2_PIX_FMT_GREY:
             channels = 1;
             break;
+        case V4L2_PIX_FMT_H264: //Implemented by econsys : for getting variable mat.
+            channels = 1;
+            size = cvSize(buffers[bufferIndex].buffer.bytesused, 1);
+            break;
         case V4L2_PIX_FMT_MJPEG:
         case V4L2_PIX_FMT_JPEG:
         default:
@@ -788,7 +806,8 @@ bool CvCaptureCAM_V4L::initCapture()
         }
         return false;
     }
-
+    if(palette==V4L2_PIX_FMT_H264 || palette == V4L2_PIX_FMT_Y12) //Implemented by econsys : Inorder to get variable mat size
+         convert_rgb = false;
     /* try to set framerate */
     setFps(fps);
 
@@ -946,42 +965,140 @@ bool CvCaptureCAM_V4L::v4l2_reset()
     return initCapture();
 }
 
+static bool checkForValidNode(String device_node_name)
+{
+    int cam_fd;
+    struct v4l2_capability 		cam_cap;
+    if ((cam_fd = open(device_node_name.c_str(), O_RDWR|O_NONBLOCK, 0)) < 0) {
+      perror("Can't open camera device ");
+      return false;
+    }
+    /* Check if the device is capable of streaming */
+    if(ioctl(cam_fd, VIDIOC_QUERYCAP, &cam_cap) < 0) {
+      perror(" VIDIOC_QUERYCAP failure");
+      close(cam_fd);
+      return false;
+    }
+    close(cam_fd);
+    if (cam_cap.device_caps & V4L2_CAP_META_CAPTURE) {
+      return false;
+    }else {
+      return true;
+    }
+}
+
+static void icvInitCapture_V4L() {
+    int deviceHandle;
+    int CameraNumber;
+    char deviceName[MAX_DEVICE_DRIVER_NAME];
+
+    CameraNumber = 0;
+    numCameras = 0;
+    indexList = 0;
+    while(CameraNumber < MAX_CAMERAS) {
+      /* Print the CameraNumber at the end of the string with a width of one character */
+    sprintf(deviceName, "/dev/video%1d", CameraNumber);
+      /* Test using an open to see if this new device name really does exists. */
+    deviceHandle = open(deviceName, O_RDONLY);
+    if (deviceHandle != -1) {
+         /* This device does indeed exist - add it to the total so far */
+         // add indexList
+         // Checking whether the node is valid node
+        if(checkForValidNode(deviceName)){  //!!!!!!!-------------------MODIFIED BY E-CON SYSTEMS----------!!!!!!
+            indexList|=(1 << CameraNumber);
+            numCameras++;
+        }
+    }
+    if (deviceHandle != -1)
+        close(deviceHandle);
+    /* Set up to test the next /dev/video source in line */
+    CameraNumber++;
+    } /* End while */
+
+}; /* End icvInitCapture_V4L */
+
+// bool CvCaptureCAM_V4L::open(int _index)
+// {
+//     cv::String name;
+//     /* Select camera, or rather, V4L video source */
+//     if (_index < 0) // Asking for the first device available
+//     {
+//         for (int autoindex = 0; autoindex < MAX_CAMERAS; ++autoindex)
+//         {
+//             name = cv::format("/dev/video%d", autoindex);
+//             /* Test using an open to see if this new device name really does exists. */
+//             int h = ::open(name.c_str(), O_RDONLY);
+//             if (h != -1)
+//             {
+//                 ::close(h);
+//                 _index = autoindex;
+//                 break;
+//             }
+//         }
+//         if (_index < 0)
+//         {
+//             CV_LOG_WARNING(NULL, "VIDEOIO(V4L2): can't find camera device");
+//             name.clear();
+//             return false;
+//         }
+//     }
+//     else
+//     {
+//         name = cv::format("/dev/video%d", _index);
+//     }
+//
+//     bool res = open(name.c_str());
+//     if (!res)
+//     {
+//         CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): can't open camera by index");
+//     }
+//     return res;
+// }
+
 bool CvCaptureCAM_V4L::open(int _index)
 {
-    cv::String name;
-    /* Select camera, or rather, V4L video source */
-    if (_index < 0) // Asking for the first device available
-    {
-        for (int autoindex = 0; autoindex < MAX_CAMERAS; ++autoindex)
-        {
-            name = cv::format("/dev/video%d", autoindex);
-            /* Test using an open to see if this new device name really does exists. */
-            int h = ::open(name.c_str(), O_RDONLY);
-            if (h != -1)
-            {
-                ::close(h);
-                _index = autoindex;
-                break;
-            }
-        }
-        if (_index < 0)
-        {
-            CV_LOG_WARNING(NULL, "VIDEOIO(V4L2): can't find camera device");
-            name.clear();
-            return false;
-        }
-    }
-    else
-    {
-        name = cv::format("/dev/video%d", _index);
-    }
+   int autoindex = 0;
+   char _deviceName[MAX_DEVICE_DRIVER_NAME];
+   int count = 0;
+   icvInitCapture_V4L(); /* Havent called icvInitCapture yet - do it now! */
+   if (!numCameras)
+     return false; /* Are there any /dev/video input sources? */
 
-    bool res = open(name.c_str());
-    if (!res)
-    {
-        CV_LOG_WARNING(NULL, "VIDEOIO(V4L2:" << deviceName << "): can't open camera by index");
-    }
-    return res;
+   //search index in indexList
+   while(autoindex < 8){
+     if((1<<autoindex) & indexList){
+        if(count == _index){
+          _index = autoindex;
+          break;
+        }
+        count++;
+     }
+     autoindex++;
+   }
+
+   if ( (_index>-1) && ! ((1 << _index) & indexList) )
+   {
+     _index++;
+     if((_index>-1) && ! ((1 << _index) & indexList)){
+     fprintf( stderr, "VIDEOIO ERROR: V4L: index %d is not correct!\n",_index);
+     return false; /* Did someone ask for not correct video source number? */
+     }
+   }
+
+   /* Select camera, or rather, V4L video source */
+   if (_index<0) { // Asking for the first device available
+     for (autoindex = 0; autoindex<MAX_CAMERAS;autoindex++)
+    if (indexList & (1<<autoindex))
+        break;
+     if (autoindex==MAX_CAMERAS)
+    return false;
+     _index=autoindex;
+     autoindex++;// i can recall icvOpenCAM_V4l with index=-1 for next camera
+   }
+
+   /* Print the CameraNumber at the end of the string with a width of one character */
+   sprintf(_deviceName, "/dev/video%1d", _index);
+   return open(_deviceName);
 }
 
 bool CvCaptureCAM_V4L::open(const char* _deviceName)
@@ -1130,6 +1247,251 @@ bool CvCaptureCAM_V4L::tryIoctl(unsigned long ioctlCode, void *parameter, bool f
         }
     }
     return true;
+}
+
+bool CvCaptureCAM_V4L::getDevices(int &devices)
+{
+    devices = 0;
+    struct udev *udev;
+    struct udev_enumerate *enumerate;
+    struct udev_list_entry *device, *dev_list_entry;
+    struct udev_device *dev;
+    udev = udev_new();
+    if(!udev)
+        return false;
+
+    enumerate = udev_enumerate_new(udev);
+    udev_enumerate_add_match_subsystem(enumerate, "video4linux");
+    udev_enumerate_scan_devices(enumerate);
+    device = udev_enumerate_get_list_entry(enumerate);
+
+    udev_list_entry_foreach(dev_list_entry, device)
+    {
+        const char *path;
+        path = udev_list_entry_get_name(dev_list_entry);
+        dev = udev_device_new_from_syspath(udev, path);
+        if(checkForValidNode(udev_device_get_devnode(dev)))
+        {
+            devices++;
+        }
+    }
+    udev_enumerate_unref(enumerate);
+    udev_unref(udev);
+
+    return true;
+}
+
+bool CvCaptureCAM_V4L::getDeviceInfo(int index, String &gdeviceName, String &vid, String &pid, String &devicePath)
+{
+    int hDescriptor, ret, autoindex=0,count=0;
+    struct v4l2_capability querycap;
+    struct udev *udev;
+    struct udev_enumerate *enumerate;
+    struct udev_list_entry *devices, *dev_list_entry;
+    struct udev_device *dev, *pdev;
+    udev = udev_new();
+    if(!udev)
+	       return false;
+    icvInitCapture_V4L(); /* Havent called icvInitCapture yet - do it now! */
+    while(autoindex < 8){
+        if((1<<autoindex) & indexList){
+            if(count == index){
+                index = autoindex;
+                break;
+            }
+        count++;
+        }
+        autoindex++;
+    }
+    enumerate = udev_enumerate_new(udev);
+    udev_enumerate_add_match_subsystem(enumerate, "video4linux");
+    udev_enumerate_scan_devices(enumerate);
+    devices = udev_enumerate_get_list_entry(enumerate);
+
+    udev_list_entry_foreach(dev_list_entry, devices)
+    {
+        const char *path;
+  	    path = udev_list_entry_get_name(dev_list_entry);
+        dev = udev_device_new_from_syspath(udev, path);
+	      pdev = udev_device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device");
+        if (!pdev)
+            return false;
+	      devicePath = udev_device_get_devnode(dev);
+
+    	  vid = udev_device_get_sysattr_value(pdev, "idVendor");
+    	  pid = udev_device_get_sysattr_value(pdev, "idProduct");
+        udev_device_unref(dev);
+        if(!(hDescriptor = ::open(devicePath.c_str(), O_RDWR | O_NONBLOCK)))
+        {
+            return false;
+        }
+
+        if((ret = ioctl(hDescriptor, VIDIOC_QUERYCAP, &querycap)) < 0)
+        {
+            return false;
+        }
+        if (!(querycap.device_caps & V4L2_CAP_META_CAPTURE)) {
+            gdeviceName = (char*)querycap.card;
+        }
+        if( (devicePath[10] - '0') == index)
+            break;
+    }
+    udev_enumerate_unref(enumerate);
+    udev_unref(udev);
+
+    return true;
+}
+
+bool CvCaptureCAM_V4L::getFormats(int &formats)
+{
+    int ret;
+    formats = 0;
+
+    struct v4l2_fmtdesc fmt;
+    struct v4l2_frmsizeenum frmsize;
+    struct v4l2_frmivalenum frmival;
+    memset(&fmt, 0, sizeof(fmt));
+    memset(&frmsize, 0, sizeof(frmsize));
+    memset(&frmival, 0, sizeof(frmival));
+    fmt.index = 0;
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FMT, &fmt)) == 0)
+    {
+        fmt.index++;
+        frmsize.index = 0;
+        frmsize.pixel_format = fmt.pixelformat;
+        while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMESIZES, &frmsize)) == 0)
+        {
+            if(frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+            {
+                frmsize.index++;
+                frmival.index = 0;
+                frmival.pixel_format = frmsize.pixel_format;
+                frmival.width = frmsize.discrete.width;
+                frmival.height = frmsize.discrete.height;
+
+                while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMEINTERVALS, &frmival)) == 0)
+                {
+                    if(frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE)
+                    {
+                        formats++;
+                        frmival.index++;
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool CvCaptureCAM_V4L::getFormatType(int formats, cv::String &formatType, int &width, int &height, int &fps)
+{
+    int ret, vidfmt = 0;
+    char pix_fmt[5];
+    struct v4l2_fmtdesc fmt;
+    struct v4l2_frmsizeenum frmsize;
+    struct v4l2_frmivalenum frmival;
+    width = height = fps = 0;
+    memset(&fmt, 0, sizeof(fmt));
+    memset(&frmsize, 0, sizeof(frmsize));
+    memset(&frmival, 0, sizeof(frmival));
+    fmt.index = 0;
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FMT, &fmt)) == 0)
+    {
+        memset(pix_fmt, 0, 5);
+        fmt.index++;
+        frmsize.index = 0;
+        frmsize.pixel_format = fmt.pixelformat;
+        pix_fmt[0] = (char)(fmt.pixelformat & 0xff);
+        pix_fmt[1] = (char)((fmt.pixelformat >> 8) & 0xff);
+        pix_fmt[2] = (char)((fmt.pixelformat >> 16) & 0xff);
+        pix_fmt[3] = (char)((fmt.pixelformat >> 24) & 0xff);
+        pix_fmt[4] = '\0';
+        formatType = pix_fmt;
+        while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMESIZES, &frmsize)) == 0)
+        {
+            if(frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+            {
+                width = frmsize.discrete.width;
+                height = frmsize.discrete.height;
+                frmsize.index++;
+                frmival.index = 0;
+                frmival.pixel_format = frmsize.pixel_format;
+                frmival.width = frmsize.discrete.width;
+                frmival.height = frmsize.discrete.height;
+                while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMEINTERVALS, &frmival)) == 0)
+                {
+                    if(frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE)
+                    {
+                        vidfmt++;
+                        frmival.index++;
+                        fps = (double)frmival.discrete.denominator / frmival.discrete.numerator;
+                        if(formats == vidfmt)
+                            goto skipstat;
+                    }
+                }
+            }
+        }
+    }
+    skipstat:    return true;
+}
+
+bool CvCaptureCAM_V4L::setFormatType(int index)
+{
+    int ret, vidfmt = 0, formatId = 0, width = 0, height = 0, fps = 0;
+    struct v4l2_fmtdesc fmt;
+    struct v4l2_frmsizeenum frmsize;
+    struct v4l2_frmivalenum frmival;
+    memset(&fmt, 0, sizeof(fmt));
+    memset(&frmsize, 0, sizeof(frmsize));
+    memset(&frmival, 0, sizeof(frmival));
+    fmt.index = 0;
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FMT, &fmt)) == 0)
+    {
+        fmt.index++;
+        frmsize.index = 0;
+        frmsize.pixel_format = fmt.pixelformat;
+        formatId = fmt.pixelformat;
+        while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMESIZES, &frmsize)) == 0)
+        {
+            if(frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+            {
+                width = frmsize.discrete.width;
+                height = frmsize.discrete.height;
+                frmsize.index++;
+                frmival.index = 0;
+                frmival.pixel_format = frmsize.pixel_format;
+                frmival.width = frmsize.discrete.width;
+                frmival.height = frmsize.discrete.height;
+                while((ret = ioctl(deviceHandle, VIDIOC_ENUM_FRAMEINTERVALS, &frmival)) == 0)
+                {
+                    if(frmival.type == V4L2_FRMIVAL_TYPE_DISCRETE)
+                    {
+                        vidfmt++;
+                        frmival.index++;
+                        fps = (double)frmival.discrete.denominator / frmival.discrete.numerator;
+                        if(index == vidfmt)
+                            goto skipstat;
+                    }
+                }
+            }
+        }
+    }
+    skipstat:
+       if(setProperty(CAP_PROP_FOURCC, formatId))
+        {
+           if(setProperty(CAP_PROP_FRAME_WIDTH, width))
+            {
+               if(setProperty(CAP_PROP_FRAME_HEIGHT, height))
+                {
+                   return setProperty(CAP_PROP_FPS, fps);
+                }
+            }
+        }
+        return true;
+    return false;
 }
 
 bool CvCaptureCAM_V4L::grabFrame()
@@ -1716,8 +2078,9 @@ void CvCaptureCAM_V4L::convertToRgb(const Buffer &currentBuffer)
 #ifdef HAVE_JPEG
     case V4L2_PIX_FMT_MJPEG:
     case V4L2_PIX_FMT_JPEG:
-        CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): decoding JPEG frame: size=" << currentBuffer.bytesused);
-        cv::imdecode(Mat(1, currentBuffer.bytesused, CV_8U, start), IMREAD_COLOR, &destination);
+        CV_LOG_DEBUG(NULL, "VIDEOIO(V4L2:" << deviceName << "): decoding JPEG frame: size=" << currentBuffer.buffer.bytesused);
+        if(currentBuffer.buffer.bytesused > 0)
+          cv::imdecode(Mat(1, currentBuffer.buffer.bytesused, CV_8U, start), IMREAD_COLOR, &destination);
         return;
 #endif
     case V4L2_PIX_FMT_YUYV:
@@ -1752,6 +2115,10 @@ void CvCaptureCAM_V4L::convertToRgb(const Buffer &currentBuffer)
     }
     case V4L2_PIX_FMT_GREY:
         cv::cvtColor(cv::Mat(imageSize, CV_8UC1, start), destination, COLOR_GRAY2BGR);
+        break;
+    case V4L2_PIX_FMT_H264:
+        memcpy((char *)frame.imageData, (char *)start,
+               (int)currentBuffer.buffer.bytesused);
         break;
     case V4L2_PIX_FMT_XBGR32:
     case V4L2_PIX_FMT_ABGR32:
@@ -1887,7 +2254,7 @@ static inline int capPropertyToV4L2(int prop)
     case cv::CAP_PROP_CONVERT_RGB:
         return -1;
     case cv::CAP_PROP_WHITE_BALANCE_BLUE_U:
-        return V4L2_CID_BLUE_BALANCE;
+        return V4L2_CID_WHITE_BALANCE_TEMPERATURE;
     case cv::CAP_PROP_RECTIFICATION:
         return -1;
     case cv::CAP_PROP_MONOCHROME:
@@ -1954,8 +2321,16 @@ static inline bool compatibleRange(int property_id)
     case cv::CAP_PROP_GAIN:
     case cv::CAP_PROP_EXPOSURE:
     case cv::CAP_PROP_FOCUS:
+    case cv::CAP_PROP_SHARPNESS:
+    case cv::CAP_PROP_GAMMA:
+    case cv::CAP_PROP_WHITE_BALANCE_BLUE_U:
+    case cv::CAP_PROP_BACKLIGHT:
+    case cv::CAP_PROP_ZOOM:
+    case cv::CAP_PROP_PAN:
+    case cv::CAP_PROP_TILT:
     case cv::CAP_PROP_AUTOFOCUS:
     case cv::CAP_PROP_AUTO_EXPOSURE:
+    case cv::CAP_PROP_AUTO_WB:
         return true;
     default:
         break;
@@ -2085,6 +2460,170 @@ double CvCaptureCAM_V4L::getProperty(int property_id) const
     }
 }
 
+bool CvCaptureCAM_V4L::getProperty(int propId, int &min, int &max, int &steppingDelta, int &supportedMode, int &currentValue, int &currentMode, int &defaultValue)
+{
+  bool auto_mode = false, manual_mode = false;
+  short int auto_mode_value = -1;
+  v4l2_format form;
+  v4l2_queryctrl queryctrl;
+  memset(&form, 0, sizeof(v4l2_format));
+  form.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if (-1 == ioctl (deviceHandle, VIDIOC_G_FMT, &form))
+  {
+    perror ("VIDIOC_G_FMT");
+    return false;
+  }
+
+  v4l2_control control;
+
+  if(!((propId == CAP_PROP_WHITE_BALANCE_BLUE_U) || (propId == CAP_PROP_FOCUS) || (propId == CAP_PROP_EXPOSURE)))
+  {
+    __u32 v4l2id = capPropertyToV4L2(propId);
+
+    if(v4l2id == __u32(-1))
+    {
+      fprintf(stderr, "VIDEOIO ERROR: V4L2: getting property #%d is not supported\n", propId);
+      return false;
+    }
+
+    queryctrl = v4l2_queryctrl();
+    queryctrl.id = v4l2id;
+
+    if(0 != ioctl(deviceHandle, VIDIOC_QUERYCTRL, &queryctrl))
+    {
+        if (errno != EINVAL)
+          perror ("VIDIOC_QUERYCTRL");
+        return false;
+    }
+
+    control.id = v4l2id;
+    if (-1 == ioctl (deviceHandle, VIDIOC_G_CTRL, &control))
+    {
+       switch (propId)
+       {
+          case CAP_PROP_BRIGHTNESS:
+           break;
+          case CAP_PROP_CONTRAST:
+            break;
+          case CAP_PROP_SATURATION:
+            break;
+          case CAP_PROP_HUE:
+            break;
+          case CAP_PROP_GAIN:
+            break;
+          case CAP_PROP_SHARPNESS:
+            break;
+          case CAP_PROP_GAMMA:
+            break;
+          case CAP_PROP_BACKLIGHT:
+            break;
+          case CAP_PROP_ZOOM:
+            break;
+          case CAP_PROP_PAN:
+            break;
+          case CAP_PROP_TILT:
+            break;
+       }
+       return false;
+   }
+   manual_mode = true;
+ }
+ else
+ {
+   __u32 v4l2id1;
+   __u32 v4l2id = capPropertyToV4L2(propId);
+
+  if(propId == CAP_PROP_WHITE_BALANCE_BLUE_U)
+    v4l2id1 = capPropertyToV4L2(CAP_PROP_AUTO_WB);
+  else if(propId == CAP_PROP_FOCUS)
+    v4l2id1 = capPropertyToV4L2(CAP_PROP_AUTOFOCUS);
+  else
+    v4l2id1 = capPropertyToV4L2(CAP_PROP_AUTO_EXPOSURE);
+
+  if(v4l2id == __u32(-1))
+  {
+    fprintf(stderr, "VIDEOIO ERROR: V4L2: getting property #%d is not supported\n", propId);
+    return false;
+  }
+
+  if(v4l2id1 == __u32(-1))
+  {
+     fprintf(stderr, "VIDEOIO ERROR: V4L2: getting property #%d is not supported\n", propId);
+     return false;
+  }
+
+  queryctrl = v4l2_queryctrl();
+  queryctrl.id = v4l2id1; //Auto control id
+  if(0 != ioctl(deviceHandle, VIDIOC_QUERYCTRL, &queryctrl))//querying Auto controls
+  {
+    if (errno != EINVAL)
+      perror ("VIDIOC_QUERYCTRL");
+  }
+
+  control.id = v4l2id1; //getting auto controls,if value =0 then manual mode.if value =1 then auto mode
+  if (-1 != ioctl (deviceHandle, VIDIOC_G_CTRL, &control))
+  {
+    auto_mode = true;
+    auto_mode_value = control.value;
+  }
+    queryctrl = v4l2_queryctrl();
+    queryctrl.id = v4l2id;
+
+    if(0 != ioctl(deviceHandle, VIDIOC_QUERYCTRL, &queryctrl))
+    {
+       if (errno != EINVAL)
+           perror ("VIDIOC_QUERYCTRL");
+    }
+
+    control.id = v4l2id;
+    if (-1 != ioctl (deviceHandle, VIDIOC_G_CTRL, &control))
+    {
+       manual_mode = true;
+    }
+}
+
+min = queryctrl.minimum;
+max = queryctrl.maximum;
+currentValue = control.value;
+steppingDelta = queryctrl.step;
+defaultValue = queryctrl.default_value;
+
+if((auto_mode == true) && (manual_mode == true))
+{
+supportedMode = 3;
+switch(propId)
+{
+  case CAP_PROP_WHITE_BALANCE_BLUE_U  : (auto_mode_value == 1)?(currentMode = 1) : (currentMode = 2);
+                                            break;
+  case CAP_PROP_EXPOSURE:             (auto_mode_value == 0)?(currentMode = 1) : (currentMode = 2);
+                                          break;
+   case CAP_PROP_FOCUS:                (auto_mode_value == 1)?(currentMode = 1) : (currentMode = 2);
+                                         break;
+  default: printf("\nInvalid control %d",auto_mode_value);
+           return false;
+
+}
+//(bCurrMode1 == true) ? (currentMode = 1) : (currentMode = 2);
+
+}
+else if(auto_mode == true)
+{
+ currentMode = 1;
+ supportedMode = 1;
+}
+else if(manual_mode == true)
+{
+ currentMode = 2;
+ supportedMode = 2;
+}
+else
+{
+  return false;
+}
+// printf("\nsupportedMode: %d currentMode: %d",supportedMode,currentMode );
+    return true;
+}
+
 bool CvCaptureCAM_V4L::icvSetFrameSize(int _width, int _height)
 {
     if (_width > 0)
@@ -2104,7 +2643,7 @@ bool CvCaptureCAM_V4L::icvSetFrameSize(int _width, int _height)
     return v4l2_reset();
 }
 
-bool CvCaptureCAM_V4L::setProperty( int property_id, double _value )
+bool CvCaptureCAM_V4L::setProperty( int property_id, int _value )
 {
     int value = cvRound(_value);
     switch (property_id) {
@@ -2182,6 +2721,165 @@ bool CvCaptureCAM_V4L::setProperty( int property_id, double _value )
     }
     }
     return false;
+}
+
+bool CvCaptureCAM_V4L::setProperty(int propId, int _value, int mode)
+{
+    v4l2_control control;
+    __u32 v4l2id;
+    int value = cvRound(_value);
+
+    if(mode == 2)
+    {
+      int min,max,steppingDelta,supportedMode,currentValue,currentMode,defaultValue;
+      if(!getProperty(propId,min, max,steppingDelta,supportedMode,currentValue,currentMode,defaultValue))//Added by M.Vishnu Murali: if auto control is not supported skip and set manual control.
+       {
+         printf("\nFailed to get supportedModes.");
+         return false;
+       }
+  	   if(propId == CAP_PROP_WHITE_BALANCE_BLUE_U && supportedMode !=2)
+	     {
+ 	        v4l2id = capPropertyToV4L2(CAP_PROP_AUTO_WB);
+	        v4l2_control wcontrol = {v4l2id, 0};
+
+	        if (-1 == ioctl(deviceHandle, VIDIOC_S_CTRL, &wcontrol) && errno != ERANGE)
+	        {
+   		       perror ("VIDIOC_S_CTRL");
+	       	    return false;
+	        }
+	     }
+
+	     if(propId == CAP_PROP_FOCUS && supportedMode !=2)
+	     {
+	        v4l2id = capPropertyToV4L2(CAP_PROP_AUTOFOCUS);
+	        v4l2_control fcontrol = {v4l2id, 0};
+
+	        if (-1 == ioctl(deviceHandle, VIDIOC_S_CTRL, &fcontrol) && errno != ERANGE)
+	        {
+	    	      perror ("VIDIOC_S_CTRL");
+	       	    return false;
+	        }
+	     }
+
+	     if(propId == CAP_PROP_EXPOSURE && supportedMode !=2)
+	     {
+		       // Set Exposure mode as manual
+           control.id = capPropertyToV4L2(CAP_PROP_AUTO_EXPOSURE);
+           int value = 1;
+           v4l2_queryctrl qctrl;
+           v4l2_querymenu qmenu;
+           qctrl.id = capPropertyToV4L2(CAP_PROP_AUTO_EXPOSURE);
+           if (-1 == ioctl(deviceHandle,VIDIOC_QUERYCTRL, &qctrl) && errno != ERANGE)
+           {
+             perror ("VIDIOC_QUERYCTRL");
+             return false;
+           }
+           int i;
+           for (i = qctrl.minimum; i <= qctrl.maximum; i++) {
+              qmenu.id = qctrl.id;
+              qmenu.index = i;
+              if (!(ioctl(deviceHandle,VIDIOC_QUERYMENU, &qmenu)>=0))
+                continue;
+              if (value-- == 0)
+                break;
+            }
+            control.value = i; // 0 - auto mode , 1- manual mode , 2- shutter priority mode
+
+		       if (-1 == ioctl(deviceHandle, VIDIOC_S_CTRL, &control) && errno != ERANGE)
+		       {
+			          perror ("VIDIOC_S_CTRL");
+			          return false;
+		       }
+
+	      }
+
+
+	       v4l2id = capPropertyToV4L2(propId);
+
+	       if(v4l2id == __u32(-1))
+	       {
+	          fprintf(stderr, "VIDEOIO ERROR: V4L2: setting property #%d is not supported\n", propId);
+	          return -1;
+	       }
+
+	       control.id = v4l2id;
+         control.value = int(value);
+
+	        if (-1 == ioctl(deviceHandle, VIDIOC_S_CTRL, &control) && errno != ERANGE)
+	        {
+	           perror ("VIDIOC_S_CTRL");
+	           return false;
+	        }
+	        bCurrMode1 = false;
+	        bCurrMode2 = true;
+    }
+    else
+    {
+	     if(propId == CAP_PROP_WHITE_BALANCE_BLUE_U)
+	     {
+     	    v4l2id = capPropertyToV4L2(CAP_PROP_AUTO_WB);
+	     }
+	     else if(propId == CAP_PROP_EXPOSURE)
+	     {
+	        v4l2id = capPropertyToV4L2(CAP_PROP_AUTO_EXPOSURE);
+	     }
+	     else if(propId == CAP_PROP_FOCUS)
+	     {
+	        v4l2id = capPropertyToV4L2(CAP_PROP_AUTOFOCUS);
+	     }
+
+           cv::Range range;
+           __u32 v4l2id1;
+           if (!controlInfo(propId, v4l2id1, range))
+               return false;
+           if (normalizePropRange && compatibleRange(propId))
+               value = cv::saturate_cast<int>(_value * range.size() + range.start);
+           // return icvControl(v4l2id, value, true);
+
+	     if(v4l2id == __u32(-1))
+	     {
+	        fprintf(stderr, "VIDEOIO ERROR: V4L2: setting property #%d is not supported\n", propId);
+	         return -1;
+       }
+
+   	/* scale the value we want to set */
+    	//value = range.size() + range.start;
+
+	      if((propId == CAP_PROP_WHITE_BALANCE_BLUE_U) || (propId == CAP_PROP_FOCUS))
+	          value = 1;
+        else
+            value = 0 ;
+	/* set which control we want to set */
+	     v4l2_control bcontrol;
+       bcontrol.id= v4l2id;
+       bcontrol.value = int(value);
+
+	     if ((-1 == ioctl(deviceHandle, VIDIOC_S_CTRL, &bcontrol) )&& (errno != ERANGE))
+	     {
+	        perror ("VIDIOC_S_CTRL");
+	        return false;
+	     }
+	     bCurrMode1 = true;
+	     bCurrMode2 = false;
+    }
+    if(control.id == V4L2_CID_EXPOSURE_AUTO && control.value == V4L2_EXPOSURE_MANUAL)
+    {
+        // update the control range for expose after disabling autoexposure
+        // as it is not read correctly at startup
+        // TODO check this again as it might be fixed with Linux 4.5
+        cv::Range range;
+        __u32 v4l2id;
+        if(!controlInfo(propId, v4l2id, range))
+            return -1.0;
+        int value = 0;
+        if(!icvControl(v4l2id, value, false))
+            return -1.0;
+        if (normalizePropRange && compatibleRange(propId))
+            return ((double)value - range.start) / range.size();
+        return  value;
+    }
+
+    return true;
 }
 
 void CvCaptureCAM_V4L::releaseFrame()
@@ -2307,6 +3005,9 @@ IplImage *CvCaptureCAM_V4L::retrieveFrame(int)
 Ptr<IVideoCapture> create_V4L_capture_cam(int index)
 {
     cv::CvCaptureCAM_V4L* capture = new cv::CvCaptureCAM_V4L();
+
+    if(index==-1)
+    	return makePtr<LegacyCapture>(capture);
 
     if (capture->open(index))
         return makePtr<LegacyCapture>(capture);

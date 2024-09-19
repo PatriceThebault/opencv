@@ -141,7 +141,7 @@ public:
 
     virtual bool isOpened() const CV_OVERRIDE;
     virtual double getProperty(int) const CV_OVERRIDE;
-    virtual bool setProperty(int, double) CV_OVERRIDE;
+    virtual bool setProperty(int, int) CV_OVERRIDE;
     virtual bool grabFrame() CV_OVERRIDE;
     virtual bool retrieveFrame(int, OutputArray) CV_OVERRIDE;
     virtual int getCaptureDomain() CV_OVERRIDE { return CV_CAP_GPHOTO2; }

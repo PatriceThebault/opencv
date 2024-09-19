@@ -198,7 +198,7 @@ public:
         return 0;
     }
 
-    bool setProperty(int property_id, double value) CV_OVERRIDE
+    bool setProperty(int property_id, int value) CV_OVERRIDE
     {
         switch (property_id)
         {

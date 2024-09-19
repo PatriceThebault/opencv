@@ -224,7 +224,7 @@ class XINECapture : public IVideoCapture
         return 0;
     }
 
-    bool setProperty(int property_id, double value) CV_OVERRIDE
+    bool setProperty(int property_id, int value) CV_OVERRIDE
     {
         CV_Assert(stream);
         CV_Assert(vo_port);

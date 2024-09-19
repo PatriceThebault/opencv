@@ -49,6 +49,7 @@ using namespace cv;
 #if !(defined(_WIN32) || defined(WINCE))
 # include <pthread.h>
 #endif
+#include <assert.h>
 #include <algorithm>
 #include <limits>
 #include <string.h>
@@ -519,7 +520,7 @@ struct CvCapture_FFMPEG
     void close();
 
     double getProperty(int) const;
-    bool setProperty(int, double);
+    bool setProperty(int, int);
     bool grabFrame();
     bool retrieveFrame(int flag, unsigned char** data, int* step, int* width, int* height, int* cn, int* depth);
     bool retrieveHWFrame(cv::OutputArray output);
@@ -1948,7 +1949,7 @@ void CvCapture_FFMPEG::seek(double sec)
     seek((int64_t)(sec * get_fps() + 0.5));
 }
 
-bool CvCapture_FFMPEG::setProperty( int property_id, double value )
+bool CvCapture_FFMPEG::setProperty( int property_id, int value )
 {
     if( !video_st ) return false;
 
